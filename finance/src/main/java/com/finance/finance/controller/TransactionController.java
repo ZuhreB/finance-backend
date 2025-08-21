@@ -8,9 +8,12 @@ import com.finance.finance.service.TransactionService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
+import com.finance.finance.service.UserService;
 
 @RestController
 @RequestMapping("/api/transactions")
@@ -19,6 +22,9 @@ public class TransactionController {
 
     @Autowired
     private TransactionService transactionService;
+
+    @Autowired
+    private UserService userService;
 
     private User getAuthenticatedUser(HttpSession session) {
         User user = (User) session.getAttribute("user");
@@ -50,9 +56,27 @@ public class TransactionController {
     }
 
     @GetMapping
-    public ResponseEntity<?> getUserTransactions(HttpSession session) {
+    public ResponseEntity<?> getUserTransactions() {
+        System.out.println("GET /api/transactions called");
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        System.out.println("Authentication: " + authentication);
+        System.out.println("Principal: " + authentication.getPrincipal());
+        System.out.println("Name: " + authentication.getName());
+
+        if (authentication == null || !authentication.isAuthenticated()) {
+            System.out.println("Not authenticated");
+            return ResponseEntity.status(401).body("Not authenticated");
+        }
+
+        String username = authentication.getName();
+        System.out.println("Username: " + username);
+
         try {
-            User user = getAuthenticatedUser(session);
+            User user = userService.findByUsername(username);
+            if(user==null){
+                System.out.println("kullanıcı null");
+            }
             List<Transaction> transactions = transactionService.getUserTransactions(user);
             return ResponseEntity.ok(transactions);
         } catch (RuntimeException e) {

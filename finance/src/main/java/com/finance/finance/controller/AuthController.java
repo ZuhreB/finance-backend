@@ -2,16 +2,16 @@ package com.finance.finance.controller;
 
 import com.finance.finance.dto.AuthRequest;
 import com.finance.finance.dto.RegisterRequest;
-import com.finance.finance.entity.User;
 import com.finance.finance.service.AuthService;
-import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true")
+@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:3001"})
 public class AuthController {
 
     @Autowired
@@ -20,44 +20,31 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody RegisterRequest registerRequest) {
         try {
-            User user = authService.registerUser(
+            Map<String, Object> response = authService.registerUser(
                     registerRequest.getUsername(),
                     registerRequest.getEmail(),
                     registerRequest.getPassword()
             );
-            return ResponseEntity.ok(user);
+            return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody AuthRequest authRequest, HttpSession session) {
+    public ResponseEntity<?> login(@RequestBody AuthRequest authRequest) {
+
+        System.out.println("Login attempt for user: " + authRequest.getUsername());
         try {
-            User user = authService.authenticateUser(
+            Map<String, Object> response = authService.authenticateUser(
                     authRequest.getUsername(),
                     authRequest.getPassword()
             );
 
-            session.setAttribute("user", user);
-            return ResponseEntity.ok(user);
+            System.out.println("Login successful, token generated: " + response.get("token"));
+            return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
-    }
-
-    @PostMapping("/logout")
-    public ResponseEntity<?> logout(HttpSession session) {
-        session.invalidate();
-        return ResponseEntity.ok("Logged out successfully");
-    }
-
-    @GetMapping("/me")
-    public ResponseEntity<?> getCurrentUser(HttpSession session) {
-        User user = (User) session.getAttribute("user");
-        if (user != null) {
-            return ResponseEntity.ok(user);
-        }
-        return ResponseEntity.status(401).body("Not authenticated");
     }
 }
