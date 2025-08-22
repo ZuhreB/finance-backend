@@ -32,13 +32,15 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody AuthRequest authRequest) {
+    public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {
+        String username = credentials.get("username");
+        String password = credentials.get("password");
 
-        System.out.println("Login attempt for user: " + authRequest.getUsername());
+        System.out.println("Login attempt for user: " + username);
         try {
             Map<String, Object> response = authService.authenticateUser(
-                    authRequest.getUsername(),
-                    authRequest.getPassword()
+                    username,
+                    password
             );
 
             System.out.println("Login successful, token generated: " + response.get("token"));

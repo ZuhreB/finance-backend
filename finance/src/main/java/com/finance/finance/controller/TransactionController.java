@@ -5,7 +5,6 @@ import com.finance.finance.entity.Transaction;
 import com.finance.finance.entity.TransactionType;
 import com.finance.finance.entity.User;
 import com.finance.finance.service.TransactionService;
-import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -14,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
 import com.finance.finance.service.UserService;
-
 @RestController
 @RequestMapping("/api/transactions")
 @CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true")
@@ -26,18 +24,23 @@ public class TransactionController {
     @Autowired
     private UserService userService;
 
-    private User getAuthenticatedUser(HttpSession session) {
-        User user = (User) session.getAttribute("user");
-        if (user == null) {
+    // Kullanıcıyı kimlik doğrulama bağlamından alan yardımcı metot
+    private User getAuthenticatedUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
             throw new RuntimeException("Not authenticated");
         }
-        return user;
+        String username = authentication.getName();
+        return userService.findByUsername(username);
     }
 
     @PostMapping
-    public ResponseEntity<?> createTransaction(@RequestBody TransactionRequest request, HttpSession session) {
+    public ResponseEntity<?> createTransaction(@RequestBody TransactionRequest request) {
         try {
-            User user = getAuthenticatedUser(session);
+            User user = getAuthenticatedUser();
+            if (user == null) {
+                return ResponseEntity.status(401).body("User not found or not authenticated");
+            }
             Transaction transaction = transactionService.createTransaction(
                     user,
                     request.getAmount(),
@@ -46,7 +49,6 @@ public class TransactionController {
                     request.getCategory(),
                     request.getTransactionDate()
             );
-
             return ResponseEntity.ok(transaction);
         } catch (RuntimeException e) {
             return ResponseEntity.status(401).body("Not authenticated");
@@ -57,25 +59,10 @@ public class TransactionController {
 
     @GetMapping
     public ResponseEntity<?> getUserTransactions() {
-        System.out.println("GET /api/transactions called");
-
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        System.out.println("Authentication: " + authentication);
-        System.out.println("Principal: " + authentication.getPrincipal());
-        System.out.println("Name: " + authentication.getName());
-
-        if (authentication == null || !authentication.isAuthenticated()) {
-            System.out.println("Not authenticated");
-            return ResponseEntity.status(401).body("Not authenticated");
-        }
-
-        String username = authentication.getName();
-        System.out.println("Username: " + username);
-
         try {
-            User user = userService.findByUsername(username);
-            if(user==null){
-                System.out.println("kullanıcı null");
+            User user = getAuthenticatedUser();
+            if (user == null) {
+                return ResponseEntity.status(401).body("User not found or not authenticated");
             }
             List<Transaction> transactions = transactionService.getUserTransactions(user);
             return ResponseEntity.ok(transactions);
@@ -85,9 +72,12 @@ public class TransactionController {
     }
 
     @GetMapping("/balance")
-    public ResponseEntity<?> getUserBalance(HttpSession session) {
+    public ResponseEntity<?> getUserBalance() {
         try {
-            User user = getAuthenticatedUser(session);
+            User user = getAuthenticatedUser();
+            if (user == null) {
+                return ResponseEntity.status(401).body("User not found or not authenticated");
+            }
             BigDecimal balance = transactionService.getUserBalance(user);
             return ResponseEntity.ok(balance);
         } catch (RuntimeException e) {
@@ -96,9 +86,12 @@ public class TransactionController {
     }
 
     @GetMapping("/type/{type}")
-    public ResponseEntity<?> getUserTransactionsByType(@PathVariable TransactionType type, HttpSession session) {
+    public ResponseEntity<?> getUserTransactionsByType(@PathVariable TransactionType type) {
         try {
-            User user = getAuthenticatedUser(session);
+            User user = getAuthenticatedUser();
+            if (user == null) {
+                return ResponseEntity.status(401).body("User not found or not authenticated");
+            }
             List<Transaction> transactions = transactionService.getUserTransactionsByType(user, type);
             return ResponseEntity.ok(transactions);
         } catch (RuntimeException e) {
