@@ -6,12 +6,18 @@ import com.finance.finance.entity.TransactionType;
 import com.finance.finance.entity.User;
 import com.finance.finance.service.TransactionService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 import com.finance.finance.service.UserService;
 @RestController
 @RequestMapping("/api/transactions")
@@ -71,6 +77,7 @@ public class TransactionController {
         }
     }
 
+
     @GetMapping("/balance")
     public ResponseEntity<?> getUserBalance() {
         try {
@@ -97,5 +104,70 @@ public class TransactionController {
         } catch (RuntimeException e) {
             return ResponseEntity.status(401).body("Not authenticated");
         }
+    }
+    @GetMapping("/reports/date-range-type")
+    public ResponseEntity<?> getTransactionsByDateRangeAndType(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam TransactionType type) {
+        try {
+            User user = getAuthenticatedUser();
+            if (user == null) {
+                return ResponseEntity.status(401).body("User not found or not authenticated");
+            }
+            List<Transaction> transactions = transactionService.getUserTransactionsByDateRangeAndType(user, startDate, endDate, type);
+            return ResponseEntity.ok(transactions);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(401).body("Not authenticated");
+        }
+    }
+    @GetMapping("/reports/summary")
+    public ResponseEntity<?> getTransactionsSummaryByDateRange(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        try {
+            User user = getAuthenticatedUser();
+            if (user == null) {
+                return ResponseEntity.status(401).body("User not found or not authenticated");
+            }
+            BigDecimal totalIncome = transactionService.getUserTransactionsByDateRangeAndType(user, startDate, endDate, TransactionType.INCOME)
+                    .stream()
+                    .map(Transaction::getAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal totalExpense = transactionService.getUserTransactionsByDateRangeAndType(user, startDate, endDate, TransactionType.EXPENSE)
+                    .stream()
+                    .map(Transaction::getAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            Map<String, BigDecimal> summary = new HashMap<>();
+            summary.put("totalIncome", totalIncome);
+            summary.put("totalExpense", totalExpense);
+
+            return ResponseEntity.ok(summary);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(401).body("Not authenticated");
+        }
+    }
+
+    @GetMapping("/reports/category-breakdown")
+    public ResponseEntity<?> getCategoryBreakdown(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam TransactionType type) {
+
+        User user = getAuthenticatedUser();
+        List<Transaction> transactions = transactionService.getUserTransactionsByDateRangeAndType(
+                user, startDate, endDate, type
+        );
+
+        // Kategori bazlı gruplama
+        Map<String, BigDecimal> categoryMap = transactions.stream()
+                .collect(Collectors.groupingBy(
+                        Transaction::getCategory,
+                        Collectors.reducing(BigDecimal.ZERO, Transaction::getAmount, BigDecimal::add)
+                ));
+
+        return ResponseEntity.ok(categoryMap);
     }
 }
