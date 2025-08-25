@@ -53,7 +53,11 @@ public class TransactionController {
                     request.getType(),
                     request.getDescription(),
                     request.getCategory(),
-                    request.getTransactionDate()
+                    request.getTransactionDate(),
+                    request.getCurrencyPair(),
+                    request.getPurchaseRate(),
+                    request.getSellingRate(),
+                    request.getQuantity()
             );
             return ResponseEntity.ok(transaction);
         } catch (RuntimeException e) {

@@ -64,7 +64,7 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
         sendRatesToClients(allRates);
     }
 
-    private Map<String, BigDecimal> getForexRates() {
+    public Map<String, BigDecimal> getForexRates() {
         Map<String, BigDecimal> rates = new HashMap<>();
 
         try {
@@ -105,7 +105,7 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
         return rates;
     }
 
-    private Map<String, BigDecimal> getGoldRates() {
+    public Map<String, BigDecimal> getGoldRates() {
         Map<String, BigDecimal> rates = new HashMap<>();
 
         try {

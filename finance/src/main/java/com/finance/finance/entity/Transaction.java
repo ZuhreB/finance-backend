@@ -37,6 +37,17 @@ public class Transaction {
     @Column(nullable = false, updatable = false) // Oluşturulma tarihi, sonradan değiştirilemez
     private LocalDate createdAt = LocalDate.now();
 
+    @Column(nullable = true)
+    private String currencyPair; // Örn: "USD/TRY", "GRAM ALTIN"
+
+    @Column(nullable = true, precision = 19, scale = 6)
+    private BigDecimal purchaseRate; // Alış kuru (CURRENCY_BUY, GOLD_BUY için)
+
+    @Column(nullable = true, precision = 19, scale = 6)
+    private BigDecimal sellingRate; // Satış kuru (CURRENCY_SELL, GOLD_SELL için)
+
+    @Column(nullable = true, precision = 19, scale = 6)
+    private BigDecimal quantity;
     // --- Getter ve Setter Metotları ---
     // Lombok bağımlılığını eklediyseniz @Data veya @Getter/@Setter ile bunları otomatik oluşturabilirsiniz.
     // Şimdilik manuel ekliyorum, ancak Lombok kullanmak kodunuzu çok daha temiz yapar.
@@ -103,5 +114,23 @@ public class Transaction {
 
     public void setCreatedAt(LocalDate createdAt) {
         this.createdAt = createdAt;
+    }
+    public String getCurrencyPair() { return currencyPair; }
+    public void setCurrencyPair(String currencyPair) { this.currencyPair = currencyPair; }
+
+    public BigDecimal getPurchaseRate() { return purchaseRate; }
+    public void setPurchaseRate(BigDecimal purchaseRate) { this.purchaseRate = purchaseRate; }
+
+    public BigDecimal getSellingRate() { return sellingRate; }
+    public void setSellingRate(BigDecimal sellingRate) { this.sellingRate = sellingRate; }
+
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+
+    public boolean isInvestmentTransaction() {
+        return this.type == TransactionType.CURRENCY_BUY ||
+                this.type == TransactionType.CURRENCY_SELL ||
+                this.type == TransactionType.GOLD_BUY ||
+                this.type == TransactionType.GOLD_SELL;
     }
 }
