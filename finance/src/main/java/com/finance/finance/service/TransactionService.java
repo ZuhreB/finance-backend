@@ -72,7 +72,8 @@ public class TransactionService {
         BigDecimal balance = BigDecimal.ZERO;
 
         for (Transaction transaction : transactions) {
-            if (transaction.getType() == TransactionType.INCOME) {
+            if (transaction.getType() == TransactionType.INCOME || transaction.getType()==TransactionType.GOLD_SELL
+                    || transaction.getType()==TransactionType.CURRENCY_SELL) {
                 balance = balance.add(transaction.getAmount());
             } else {
                 balance = balance.subtract(transaction.getAmount());
@@ -81,6 +82,7 @@ public class TransactionService {
 
         return balance;
     }
+    // bu fonksiyon kullanıldktan sonra yeni balance ı görmek için getbalance() fonksiyonu tekrar çağırılmalı d
     public void deleteTransaction(Long transactionId, Long userId) {
 
         Transaction transaction = transactionRepository.findById(transactionId)
@@ -131,8 +133,9 @@ public class TransactionService {
                 .collect(Collectors.toList());
     }
 
+
     public Map<String, Object> getInvestmentProfitLoss(User user, LocalDate startDate, LocalDate endDate) {
-        List<Transaction> investmentTransactions = new ArrayList<>() ;
+        List<Transaction> investmentTransactions = new ArrayList<>();
         investmentTransactions.addAll(transactionRepository.findByUserAndTypeAndTransactionDateBetween(
                 user,
                 TransactionType.CURRENCY_BUY,
@@ -157,13 +160,14 @@ public class TransactionService {
                 startDate,
                 endDate
         ));
+
         Map<String, Object> result = new HashMap<>();
         Map<String, BigDecimal> profitLossByAsset = new HashMap<>();
-        Map<String, BigDecimal> currentHoldings = new HashMap<>(); // Varlık bazında miktar
+        Map<String, BigDecimal> currentHoldings = new HashMap<>();
         BigDecimal totalProfitLoss = BigDecimal.ZERO;
 
         // Mevcut piyasa fiyatlarını al
-        Map<String, BigDecimal> currentRates = Map.of();
+        Map<String, BigDecimal> currentRates = new HashMap<>();
         currentRates.putAll(exchangeRateWebSocketHandler.getGoldRates());
         currentRates.putAll(exchangeRateWebSocketHandler.getForexRates());
 
@@ -201,7 +205,7 @@ public class TransactionService {
 
             // Bu varlığın ortalama alış maliyetini bul
             BigDecimal avgPurchaseRate = calculateAveragePurchaseRate(investmentTransactions, asset);
-            if (avgPurchaseRate.compareTo(BigDecimal.ZERO) > 0) {
+            if (avgPurchaseRate.compareTo(BigDecimal.ZERO) > 0 && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
                 BigDecimal unrealizedPL = currentPrice.subtract(avgPurchaseRate).multiply(quantity);
                 unrealizedProfitLoss.put(asset, unrealizedPL);
                 totalProfitLoss = totalProfitLoss.add(unrealizedPL);
@@ -216,7 +220,6 @@ public class TransactionService {
 
         return result;
     }
-
     private BigDecimal calculateAveragePurchaseRate(List<Transaction> transactions, String asset) {
         BigDecimal totalCost = BigDecimal.ZERO;
         BigDecimal totalQuantity = BigDecimal.ZERO;

@@ -45,3 +45,12 @@ cors:
   allowed-methods: "GET,POST,PUT,DELETE,OPTIONS"
   allowed-headers: "*"
   allow-credentials: true
+
+gemini:
+  api:
+    key: AIzaSyB0lYA0y6qqb1n9FmiYjLqu_nemfOSY7TU
+  project:
+    id: 377322490198
+  location: us-central1
+  model:
+    name: gemini-1.5-flash-latest

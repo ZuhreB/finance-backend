@@ -174,4 +174,24 @@ public class TransactionController {
 
         return ResponseEntity.ok(categoryMap);
     }
+    // TransactionController.java'ya ekleyin
+    @GetMapping("/reports/investment-profit-loss")
+    public ResponseEntity<?> getInvestmentProfitLoss(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        try {
+            User user = getAuthenticatedUser();
+            if (user == null) {
+                return ResponseEntity.status(401).body("User not found or not authenticated");
+            }
+
+            Map<String, Object> profitLossReport = transactionService.getInvestmentProfitLoss(user, startDate, endDate);
+            return ResponseEntity.ok(profitLossReport);
+
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(401).body("Not authenticated");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Error generating profit/loss report: " + e.getMessage());
+        }
+    }
 }
