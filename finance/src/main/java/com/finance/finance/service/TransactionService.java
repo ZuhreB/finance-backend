@@ -135,22 +135,11 @@ public class TransactionService {
 
 
     public Map<String, Object> getInvestmentProfitLoss(User user, LocalDate startDate, LocalDate endDate) {
+        // Tüm yatırım işlemlerini al (sadece alım işlemleri)
         List<Transaction> investmentTransactions = new ArrayList<>();
         investmentTransactions.addAll(transactionRepository.findByUserAndTypeAndTransactionDateBetween(
                 user,
                 TransactionType.CURRENCY_BUY,
-                startDate,
-                endDate
-        ));
-        investmentTransactions.addAll(transactionRepository.findByUserAndTypeAndTransactionDateBetween(
-                user,
-                TransactionType.CURRENCY_SELL,
-                startDate,
-                endDate
-        ));
-        investmentTransactions.addAll(transactionRepository.findByUserAndTypeAndTransactionDateBetween(
-                user,
-                TransactionType.GOLD_SELL,
                 startDate,
                 endDate
         ));
@@ -164,6 +153,7 @@ public class TransactionService {
         Map<String, Object> result = new HashMap<>();
         Map<String, BigDecimal> profitLossByAsset = new HashMap<>();
         Map<String, BigDecimal> currentHoldings = new HashMap<>();
+        Map<String, BigDecimal> totalInvestmentByAsset = new HashMap<>();
         BigDecimal totalProfitLoss = BigDecimal.ZERO;
 
         // Mevcut piyasa fiyatlarını al
@@ -171,50 +161,42 @@ public class TransactionService {
         currentRates.putAll(exchangeRateWebSocketHandler.getGoldRates());
         currentRates.putAll(exchangeRateWebSocketHandler.getForexRates());
 
+        // Her varlık için toplam yatırım miktarını ve miktarı hesapla
         for (Transaction transaction : investmentTransactions) {
             String assetKey = transaction.getCurrencyPair();
 
-            if (transaction.getType() == TransactionType.CURRENCY_BUY ||
-                    transaction.getType() == TransactionType.GOLD_BUY) {
-                // ALIŞ işlemi
-                BigDecimal currentQuantity = currentHoldings.getOrDefault(assetKey, BigDecimal.ZERO);
-                currentHoldings.put(assetKey, currentQuantity.add(transaction.getQuantity()));
+            // Toplam yatırım miktarı (alış fiyatı * miktar)
+            BigDecimal investmentAmount = transaction.getPurchaseRate().multiply(transaction.getQuantity());
+            totalInvestmentByAsset.merge(assetKey, investmentAmount, BigDecimal::add);
 
-            } else if (transaction.getType() == TransactionType.CURRENCY_SELL ||
-                    transaction.getType() == TransactionType.GOLD_SELL) {
-                // SATIŞ işlemi - kar/zarar hesapla
-                BigDecimal purchaseCost = transaction.getPurchaseRate().multiply(transaction.getQuantity());
-                BigDecimal sellingRevenue = transaction.getSellingRate().multiply(transaction.getQuantity());
-                BigDecimal profitLoss = sellingRevenue.subtract(purchaseCost);
-
-                profitLossByAsset.merge(assetKey, profitLoss, BigDecimal::add);
-                totalProfitLoss = totalProfitLoss.add(profitLoss);
-
-                // Satış yapılan miktarı currentHoldings'ten düş
-                BigDecimal currentQuantity = currentHoldings.getOrDefault(assetKey, BigDecimal.ZERO);
-                currentHoldings.put(assetKey, currentQuantity.subtract(transaction.getQuantity()));
-            }
+            // Toplam miktar
+            currentHoldings.merge(assetKey, transaction.getQuantity(), BigDecimal::add);
         }
 
-        // Gerçekleşmemiş kar/zarar hesapla (mevcut portföy)
-        Map<String, BigDecimal> unrealizedProfitLoss = new HashMap<>();
+        // Her varlık için mevcut değer ve kar/zarar hesapla
         for (Map.Entry<String, BigDecimal> entry : currentHoldings.entrySet()) {
             String asset = entry.getKey();
             BigDecimal quantity = entry.getValue();
             BigDecimal currentPrice = currentRates.getOrDefault(asset, BigDecimal.ZERO);
 
-            // Bu varlığın ortalama alış maliyetini bul
-            BigDecimal avgPurchaseRate = calculateAveragePurchaseRate(investmentTransactions, asset);
-            if (avgPurchaseRate.compareTo(BigDecimal.ZERO) > 0 && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal unrealizedPL = currentPrice.subtract(avgPurchaseRate).multiply(quantity);
-                unrealizedProfitLoss.put(asset, unrealizedPL);
-                totalProfitLoss = totalProfitLoss.add(unrealizedPL);
+            if (currentPrice.compareTo(BigDecimal.ZERO) > 0) {
+                // Mevcut değer = miktar * güncel fiyat
+                BigDecimal currentValue = quantity.multiply(currentPrice);
+
+                // Toplam yatırım miktarı
+                BigDecimal totalInvestment = totalInvestmentByAsset.getOrDefault(asset, BigDecimal.ZERO);
+
+                // Kar/zarar = mevcut değer - toplam yatırım
+                BigDecimal profitLoss = currentValue.subtract(totalInvestment);
+
+                profitLossByAsset.put(asset, profitLoss);
+                totalProfitLoss = totalProfitLoss.add(profitLoss);
             }
         }
 
-        result.put("realizedProfitLossByAsset", profitLossByAsset);
-        result.put("unrealizedProfitLossByAsset", unrealizedProfitLoss);
+        result.put("profitLossByAsset", profitLossByAsset);
         result.put("currentHoldings", currentHoldings);
+        result.put("totalInvestmentByAsset", totalInvestmentByAsset);
         result.put("totalProfitLoss", totalProfitLoss);
         result.put("currentRates", currentRates);
 
@@ -235,4 +217,5 @@ public class TransactionService {
         return totalQuantity.compareTo(BigDecimal.ZERO) > 0 ?
                 totalCost.divide(totalQuantity, 6, RoundingMode.HALF_UP) : BigDecimal.ZERO;
     }
+    
 }

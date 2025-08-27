@@ -40,6 +40,31 @@ public class TransactionController {
         return userService.findByUsername(username);
     }
 
+    @GetMapping("/reports/summary/type")
+    public ResponseEntity<?> getTransactionsSummaryByDateRangeAndType(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam TransactionType type) {
+        try {
+            User user = getAuthenticatedUser();
+            if (user == null) {
+                return ResponseEntity.status(401).body("User not found or not authenticated");
+            }
+            List<Transaction> transactions = transactionService.getUserTransactionsByDateRangeAndType(user, startDate, endDate, type);
+
+            // Kategori bazlı gruplama
+            Map<String, BigDecimal> categoryMap = transactions.stream()
+                    .collect(Collectors.groupingBy(
+                            Transaction::getCategory,
+                            Collectors.reducing(BigDecimal.ZERO, Transaction::getAmount, BigDecimal::add)
+                    ));
+
+            return ResponseEntity.ok(categoryMap);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(401).body("Not authenticated");
+        }
+    }
+
     @PostMapping
     public ResponseEntity<?> createTransaction(@RequestBody TransactionRequest request) {
         try {
