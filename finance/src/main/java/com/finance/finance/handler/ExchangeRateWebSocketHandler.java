@@ -1,5 +1,10 @@
 package com.finance.finance.handler;
 
+import com.finance.finance.entity.AlertCondition;
+import com.finance.finance.entity.UserAlert;
+import com.finance.finance.service.AlertService;
+import com.finance.finance.service.NotificationService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -12,15 +17,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Component
+//observer patternde subject
 public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
 
-    private final CopyOnWriteArrayList<WebSocketSession> sessions = new CopyOnWriteArrayList<>();
-    private final RestTemplate restTemplate = new RestTemplate();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private CopyOnWriteArrayList<WebSocketSession> sessions = new CopyOnWriteArrayList<>();
+
+    private RestTemplate restTemplate = new RestTemplate();
+
+    private ObjectMapper objectMapper = new ObjectMapper();
+    @Autowired
+    private AlertService alertService;
+    @Autowired
+    private NotificationService notificationService;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -44,24 +58,50 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRate = 180000)
     public void scheduledRateUpdate() {
         sendAllRates();
     }
 
     private void sendAllRates() {
         Map<String, BigDecimal> allRates = new HashMap<>();
-
-        // Döviz kurlarını al
         Map<String, BigDecimal> forexRates = getForexRates();
         allRates.putAll(forexRates);
 
         // Altın fiyatlarını al
         Map<String, BigDecimal> goldRates = getGoldRates();
         allRates.putAll(goldRates);
-
+        checkAlerts(allRates);
         // Tüm verileri gönder
         sendRatesToClients(allRates);
+    }
+
+
+    private void checkAlerts(Map<String, BigDecimal> currentRates) {
+        for (String currencyPair : currentRates.keySet()) {
+            BigDecimal currentRate = currentRates.get(currencyPair);
+            List<UserAlert> activeAlerts = alertService.getActiveAlertsByCurrencyPair(currencyPair);
+
+            for (UserAlert alert : activeAlerts) {
+                boolean shouldNotify = false;
+                if (alert.getCondition() == AlertCondition.GREATER_THAN && currentRate.compareTo(alert.getThreshold()) > 0) {
+                    shouldNotify = true;
+                } else if (alert.getCondition() == AlertCondition.LESS_THAN && currentRate.compareTo(alert.getThreshold()) < 0) {
+                    shouldNotify = true;
+                }
+
+                if (shouldNotify) {
+                    // Kullanıcıya bildirim gönder!
+                    // Alert içindeki User nesnesinden kullanıcı adını al
+                    String username = alert.getUser().getUsername();
+                    notificationService.sendAlertNotification(username, alert, currentRate);
+
+                    // Alarmı bir kere tetikledikten sonra inaktif et
+                    // alert.setActive(false);
+                    // alertRepository.save(alert);
+                }
+            }
+        }
     }
 
     public Map<String, BigDecimal> getForexRates() {
@@ -110,7 +150,7 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
 
         try {
 
-            String apiKey = "623947b9124568952e445c3f3845f586";
+            String apiKey = "becedf36cbf5f6eb9240fb460844b5c9";
             String goldResponse = restTemplate.getForObject(
                     "https://api.metalpriceapi.com/v1/latest?api_key=" + apiKey + "&base=XAU&currencies=TRY",
                     String.class
