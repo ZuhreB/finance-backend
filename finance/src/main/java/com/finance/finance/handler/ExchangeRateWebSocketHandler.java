@@ -1,44 +1,55 @@
 package com.finance.finance.handler;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finance.finance.repository.UserExchangeRateSubscriptionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.*;
-import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
-import org.springframework.web.socket.handler.TextWebSocketHandler;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Component
-//observer patternde subject
 public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
 
+    @Autowired
+    private UserExchangeRateSubscriptionRepository subscriptionRepository;
 
     private CopyOnWriteArrayList<WebSocketSession> sessions = new CopyOnWriteArrayList<>();
-
     private RestTemplate restTemplate = new RestTemplate();
-
     private ObjectMapper objectMapper = new ObjectMapper();
+
+    // Düzeltme 1: Son bilinen kurları saklamak için Map nesnesini tanımla
+    private final Map<String, BigDecimal> lastKnownRates = new ConcurrentHashMap<>();
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         sessions.add(session);
         System.out.println("Yeni WebSocket bağlantısı: " + session.getId());
 
-        // İlk bağlanan kullanıcıya hemen veri gönder
+        // İlk bağlanan kullanıcıya hemen güncel veriyi gönder
         sendAllRates();
     }
 
     @Override
-    public void afterConnectionClosed(WebSocketSession session, org.springframework.web.socket.CloseStatus status) throws Exception {
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         sessions.remove(session);
         System.out.println("WebSocket bağlantısı kapandı: " + session.getId());
     }
@@ -50,24 +61,66 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    // Düzeltme 2: İki ayrı @Scheduled metodu yerine tek bir metot kullanmak daha verimli olacaktır.
+    // Bu metot hem veriyi çeker hem de değişimi kontrol eder.
     @Scheduled(fixedRate = 180000)
-    public void scheduledRateUpdate() {
-        sendAllRates();
-    }
-
-    private void sendAllRates() {
+    public void checkAndNotifyExchangeRateChanges() {
         Map<String, BigDecimal> allRates = new HashMap<>();
         Map<String, BigDecimal> forexRates = getForexRates();
         allRates.putAll(forexRates);
 
-        // Altın fiyatlarını al
         Map<String, BigDecimal> goldRates = getGoldRates();
         allRates.putAll(goldRates);
 
-        // Tüm verileri gönder
-        sendRatesToClients(allRates);
+        if (allRates == null || allRates.isEmpty()) {
+            System.err.println("Harici API'den kur bilgisi alınamadı.");
+            return;
+        }
+
+        allRates.forEach((currencyPair, newRate) -> {
+            // Düzeltme 3: lastKnownRates Map'inden veriyi çekiyoruz
+            BigDecimal lastRate = lastKnownRates.get(currencyPair);
+
+            // ÖNEMLİ: Eğer yeni kur, son bilinen kurdan farklıysa...
+            if (lastRate == null || !lastRate.equals(newRate)) {
+                System.out.println("Değişim tespit edildi: " + currencyPair + " Eski: " + lastRate + ", Yeni: " + newRate);
+
+                // 4. Değişimi tüm bağlı kullanıcılara gönderin
+                broadcastUpdate(currencyPair, newRate);
+
+                // 5. Bellekteki son bilinen değeri güncelleyin
+                // Düzeltme 4: lastKnownRates Map'ine yeni değeri koyuyoruz
+                lastKnownRates.put(currencyPair, newRate);
+            }
+        });
     }
 
+    // Bu metot artık kullanılmayacak, işlevi checkAndNotifyExchangeRateChanges tarafından karşılanıyor.
+    // Dilersen bu metodu kaldırabilirsin.
+    // private void sendAllRates() { ... }
+
+    private void broadcastUpdate(String currencyPair, BigDecimal newRate) {
+        List<String> userEmailsToNotify = subscriptionRepository.findByCurrencyPair(currencyPair)
+                .stream()
+                .map(subscription -> subscription.getUser().getEmail())
+                .toList();
+
+        sessions.forEach(session -> {
+            try {
+                if (session.getPrincipal() != null) {
+                    String sessionUserEmail = session.getPrincipal().getName();
+                    if (userEmailsToNotify.contains(sessionUserEmail)) {
+                        String notificationMessage = objectMapper.writeValueAsString(
+                                Collections.singletonMap(currencyPair, newRate)
+                        );
+                        session.sendMessage(new TextMessage(notificationMessage));
+                    }
+                }
+            } catch (IOException e) {
+                System.err.println("Mesaj gönderilirken hata oluştu: " + e.getMessage());
+            }
+        });
+    }
 
     public Map<String, BigDecimal> getForexRates() {
         Map<String, BigDecimal> rates = new HashMap<>();
@@ -196,10 +249,19 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
                 }
             }
         }
-
         return rates;
     }
+    // NOT: sendAllRates metodunu checkAndNotifyExchangeRateChanges metodu içine entegre etmen daha mantıklı.
+    private void sendAllRates() {
+        Map<String, BigDecimal> allRates = new HashMap<>();
+        Map<String, BigDecimal> forexRates = getForexRates();
+        allRates.putAll(forexRates);
 
+        Map<String, BigDecimal> goldRates = getGoldRates();
+        allRates.putAll(goldRates);
+
+        sendRatesToClients(allRates);
+    }
     private void sendRatesToClients(Map<String, BigDecimal> rates) {
         try {
             String ratesJson = objectMapper.writeValueAsString(rates);
