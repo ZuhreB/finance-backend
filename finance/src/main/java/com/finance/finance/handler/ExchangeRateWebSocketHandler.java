@@ -1,9 +1,5 @@
 package com.finance.finance.handler;
 
-import com.finance.finance.entity.AlertCondition;
-import com.finance.finance.entity.UserAlert;
-import com.finance.finance.service.AlertService;
-import com.finance.finance.service.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.web.socket.TextMessage;
@@ -31,10 +27,6 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
     private RestTemplate restTemplate = new RestTemplate();
 
     private ObjectMapper objectMapper = new ObjectMapper();
-    @Autowired
-    private AlertService alertService;
-    @Autowired
-    private NotificationService notificationService;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -71,38 +63,11 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
         // Altın fiyatlarını al
         Map<String, BigDecimal> goldRates = getGoldRates();
         allRates.putAll(goldRates);
-        checkAlerts(allRates);
+
         // Tüm verileri gönder
         sendRatesToClients(allRates);
     }
 
-
-    private void checkAlerts(Map<String, BigDecimal> currentRates) {
-        for (String currencyPair : currentRates.keySet()) {
-            BigDecimal currentRate = currentRates.get(currencyPair);
-            List<UserAlert> activeAlerts = alertService.getActiveAlertsByCurrencyPair(currencyPair);
-
-            for (UserAlert alert : activeAlerts) {
-                boolean shouldNotify = false;
-                if (alert.getCondition() == AlertCondition.GREATER_THAN && currentRate.compareTo(alert.getThreshold()) > 0) {
-                    shouldNotify = true;
-                } else if (alert.getCondition() == AlertCondition.LESS_THAN && currentRate.compareTo(alert.getThreshold()) < 0) {
-                    shouldNotify = true;
-                }
-
-                if (shouldNotify) {
-                    // Kullanıcıya bildirim gönder!
-                    // Alert içindeki User nesnesinden kullanıcı adını al
-                    String username = alert.getUser().getUsername();
-                    notificationService.sendAlertNotification(username, alert, currentRate);
-
-                    // Alarmı bir kere tetikledikten sonra inaktif et
-                    // alert.setActive(false);
-                    // alertRepository.save(alert);
-                }
-            }
-        }
-    }
 
     public Map<String, BigDecimal> getForexRates() {
         Map<String, BigDecimal> rates = new HashMap<>();
