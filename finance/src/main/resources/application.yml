@@ -53,4 +53,4 @@ gemini:
     id: 377322490198
   location: us-central1
   model:
-    name: gemini-1.5-flash-latest
+    name: gemini-2.5-flash-latest

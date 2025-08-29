@@ -66,8 +66,7 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
     }
 
     // Düzeltme 2: İki ayrı @Scheduled metodu yerine tek bir metot kullanmak daha verimli olacaktır.
-
-    // Bu metot hem veriyi çeker hem de değişimi kontrol eder.
+    // FixedRate değeri 1800000000ms (20.8 gün) çok uzun, test için daha küçük bir değer kullanın.
     @Transactional
     @Scheduled(fixedRate = 1800000000)
     public void checkAndNotifyExchangeRateChanges() {
@@ -85,52 +84,53 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
         }
 
         allRates.forEach((currencyPair, newRate) -> {
-            // Bu currency pair'e abone olan tüm kullanıcıları getir
             List<UserExchangeRateSubscription> subscriptions = subscriptionRepository.findAllByCurrencyPair(currencyPair);
 
             for (UserExchangeRateSubscription subscription : subscriptions) {
                 BigDecimal lastRate = subscription.getRate();
 
-                // Değişiklik kontrolü
                 if (lastRate == null || !lastRate.equals(newRate)) {
                     System.out.println("Değişim tespit edildi - Kullanıcı: " + subscription.getUser().getEmail() +
                             ", Kur: " + currencyPair + " Eski: " + lastRate + ", Yeni: " + newRate);
 
-                    // Sadece bu kullanıcıya bildirim gönder
-                    sendNotificationToUser(subscription.getUser().getEmail(), currencyPair, newRate);
+                    // Bildirim metni ve kullanıcı adı düzgün bir şekilde tanımlandı.
+                    String username = subscription.getUser().getUsername();
+                    String message = "Dikkat! " + currencyPair + " kuru şu anda " + newRate + " değerinde.";
+
+                    sendNotificationToUser(username, message);
                     System.out.println(".................................................................................");
                     // Aboneliğin rate'ini güncelle
                     subscription.setRate(newRate);
                     subscriptionRepository.save(subscription);
                 }
             }
-
-            // Tüm abonelikleri toplu güncellemek için alternatif:
-            // subscriptionRepository.updateAllRatesForCurrencyPair(currencyPair, newRate);
         });
     }
 
-    // Yeni metod: Belirli bir kullanıcıya bildirim gönder
-    // ExchangeRateWebSocketHandler.java - Basit kullanım
-    // ExchangeRateWebSocketHandler.java - EN BASİT
-    private void sendNotificationToUser(String userEmail, String currencyPair, BigDecimal newRate) {
-        System.out.println("🔔 Notify: " + userEmail + " for " + currencyPair);
+    public void sendNotificationToUser(String username, String message) {
+        try {
+            TextMessage notificationMessage = new TextMessage(message);
 
-        for (WebSocketSession session : sessions) {
-            try {
-                // Direkt principal'ı kontrol et
-                if (session.getPrincipal() != null &&
-                        session.getPrincipal().getName().equals(userEmail)) {
+            for (WebSocketSession session : sessions) {
+                if (session.isOpen()) {
+                    // Oturum özelliklerinden ("attributes" map) kullanıcı adını alıyoruz
+                    String sessionUsername = (String) session.getAttributes().get("username");
 
-                    String message = "{\"" + currencyPair + "\":" + newRate + "}";
-                    session.sendMessage(new TextMessage(message));
-                    System.out.println("✅ Sent to: " + userEmail);
+                    if (sessionUsername != null && sessionUsername.equals(username)) {
+                        System.out.println("Kullanıcıya bildirim gönderiliyor: " + username+"mesaj "+ notificationMessage);
+                        synchronized (session) {
+                            session.sendMessage(notificationMessage);
+                        }
+
+                    }
                 }
-            } catch (Exception e) {
-                System.out.println("❌ Error: " + e.getMessage());
             }
+        } catch (IOException e) {
+            System.err.println("Kullanıcıya bildirim gönderilirken hata oluştu: " + e.getMessage());
         }
     }
+
+    // Bu metot `Principal` kullandığı için şu an için çalışmayacaktır.
     private void broadcastUpdate(String currencyPair, BigDecimal newRate) {
         List<String> userEmailsToNotify = subscriptionRepository.findByCurrencyPair(currencyPair)
                 .stream()
@@ -184,7 +184,6 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
 
         } catch (Exception e) {
             System.err.println("Döviz kurları alınırken hata: " + e.getMessage());
-            // Fallback döviz kurları
             rates.put("USD/TRY", new BigDecimal("32.85"));
             rates.put("EUR/TRY", new BigDecimal("35.65"));
             rates.put("GBP/TRY", new BigDecimal("42.10"));
@@ -199,21 +198,17 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
         Map<String, BigDecimal> rates = new HashMap<>();
 
         try {
-
             String apiKey = "cecdcace37141eba25339706aeeb61de";
             String goldResponse = restTemplate.getForObject(
                     "https://api.metalpriceapi.com/v1/latest?api_key=" + apiKey + "&base=XAU&currencies=TRY",
                     String.class
             );
-
             System.out.println("MetalPriceAPI Yanıtı: " + goldResponse);
-
             JsonNode goldNode = objectMapper.readTree(goldResponse);
 
             if (goldNode != null && goldNode.has("rates")) {
                 JsonNode ratesNode = goldNode.get("rates");
                 if (ratesNode.has("TRY")) {
-                    // 1 ons altın = XAU, 1 gram = XAU/31.1035
                     BigDecimal ouncePrice = new BigDecimal(ratesNode.get("TRY").asText());
                     BigDecimal gramPrice = ouncePrice.divide(new BigDecimal("31.1035"), 2, BigDecimal.ROUND_HALF_UP);
                     rates.put("GRAM ALTIN", gramPrice);
@@ -227,8 +222,6 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
 
         } catch (Exception e) {
             System.err.println("MetalPriceAPI'den altın fiyatı alınırken hata: " + e.getMessage());
-
-            // GoldAPI yedek denemesi
             try {
                 HttpHeaders headers = new HttpHeaders();
                 headers.set("x-access-token", "goldapi-5a0u74smeqqn0eb-io");
@@ -241,12 +234,9 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
                         entity,
                         String.class
                 );
-
                 System.out.println("GoldAPI Yanıtı: " + goldResponse.getBody());
-
                 JsonNode goldNode = objectMapper.readTree(goldResponse.getBody());
                 if (goldNode != null && goldNode.has("price")) {
-                    // GoldAPI gram fiyatını direkt veriyor
                     BigDecimal goldPrice = new BigDecimal(goldNode.get("price").asText());
                     rates.put("GRAM ALTIN", goldPrice);
                     System.out.println("GoldAPI'den alınan altın fiyatı: " + goldPrice);
@@ -255,15 +245,11 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
                 }
             } catch (Exception ex) {
                 System.err.println("Yedek altın API'sinden de veri alınamadı: " + ex.getMessage());
-
-                // Her ikisi de çalışmazsa alternatif API deneyelim
                 try {
-                    // Ücretsiz alternatif: BigPara
                     String bigParaResponse = restTemplate.getForObject(
                             "https://bigpara.hurriyet.com.tr/api/v1/altin",
                             String.class
                     );
-
                     JsonNode bigParaNode = objectMapper.readTree(bigParaResponse);
                     if (bigParaNode != null && bigParaNode.has("data")) {
                         JsonNode dataNode = bigParaNode.get("data");
@@ -277,13 +263,13 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
                     }
                 } catch (Exception bigParaEx) {
                     System.err.println("BigPara API'sinden de veri alınamadı: " + bigParaEx.getMessage());
-                    rates.put("GRAM ALTIN", new BigDecimal("2250.50")); // Fallback değer
+                    rates.put("GRAM ALTIN", new BigDecimal("2250.50"));
                 }
             }
         }
         return rates;
     }
-    // NOT: sendAllRates metodunu checkAndNotifyExchangeRateChanges metodu içine entegre etmen daha mantıklı.
+
     private void sendAllRates() {
         Map<String, BigDecimal> allRates = new HashMap<>();
         Map<String, BigDecimal> forexRates = getForexRates();
@@ -294,6 +280,7 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
 
         sendRatesToClients(allRates);
     }
+
     private void sendRatesToClients(Map<String, BigDecimal> rates) {
         try {
             String ratesJson = objectMapper.writeValueAsString(rates);
