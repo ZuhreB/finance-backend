@@ -3,6 +3,8 @@ package com.finance.finance.entity;
 
 import jakarta.persistence.*;
 
+import java.math.BigDecimal;
+
 @Entity
 @Table(name = "user_exchange_rate_subscriptions", uniqueConstraints = {
         @UniqueConstraint(columnNames = {"user_id", "currencyPair"})
@@ -13,19 +15,22 @@ public class UserExchangeRateSubscription {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
     @Column(nullable = false)
     private String currencyPair; // Örnek: "USD/TRY", "EUR/USD", "GRAM ALTIN"
 
+    @Column(nullable = false, precision = 19, scale = 6)
+    private BigDecimal rate;
     // Constructor'lar, Getter ve Setter'lar
     public UserExchangeRateSubscription() {}
 
-    public UserExchangeRateSubscription(User user, String currencyPair) {
+    public UserExchangeRateSubscription(User user, String currencyPair,BigDecimal rate) {
         this.user = user;
         this.currencyPair = currencyPair;
+        this.rate = rate;
     }
 
     public Long getId() { return id; }
@@ -36,4 +41,7 @@ public class UserExchangeRateSubscription {
 
     public String getCurrencyPair() { return currencyPair; }
     public void setCurrencyPair(String currencyPair) { this.currencyPair = currencyPair; }
+
+    public BigDecimal getRate() { return rate; }
+    public void setRate(BigDecimal rate) { this.rate = rate; }
 }

@@ -8,6 +8,8 @@ import com.finance.finance.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
 import java.security.Principal;
 import java.util.Collections;
 import java.util.Map;
@@ -26,11 +28,14 @@ public class SubscriptionController {
     @PostMapping
     public ResponseEntity<?> addSubscription(@RequestBody Map<String, String> payload, Principal principal) {
         String currencyPair = payload.get("currencyPair");
-        User user = userRepository.findByUsername(principal.getName()).orElse(null); // findByUsername olarak değiştirildi
+        User user = userRepository.findByUsername(principal.getName()).orElse(null);
         if (user == null) {
             return ResponseEntity.status(401).body("User not found");
         }
-        UserExchangeRateSubscription subscription = new UserExchangeRateSubscription(user, currencyPair);
+
+        // Burada geçerli rate'i almanız gerekecek
+        // Örnek olarak 0 değeriyle kaydediyoruz, WebSocketHandler'da güncellenecek
+        UserExchangeRateSubscription subscription = new UserExchangeRateSubscription(user, currencyPair, BigDecimal.ZERO);
         subscriptionRepository.save(subscription);
         return ResponseEntity.ok(Collections.singletonMap("message", "Subscription added successfully"));
     }
@@ -38,7 +43,7 @@ public class SubscriptionController {
     @DeleteMapping("/{currencyPair}")
     @Transactional
     public ResponseEntity<?> removeSubscription(@PathVariable String currencyPair, Principal principal) {
-        User user = userRepository.findByEmail(principal.getName()).orElse(null);
+        User user = userRepository.findByUsername(principal.getName()).orElse(null);
         if (user == null) {
             return ResponseEntity.status(401).body("User not found");
         }

@@ -2,7 +2,9 @@ package com.finance.finance.handler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finance.finance.entity.UserExchangeRateSubscription;
 import com.finance.finance.repository.UserExchangeRateSubscriptionRepository;
+import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -19,6 +21,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.security.Principal;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -46,6 +49,7 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
 
         // İlk bağlanan kullanıcıya hemen güncel veriyi gönder
         sendAllRates();
+        checkAndNotifyExchangeRateChanges();
     }
 
     @Override
@@ -62,9 +66,12 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
     }
 
     // Düzeltme 2: İki ayrı @Scheduled metodu yerine tek bir metot kullanmak daha verimli olacaktır.
+
     // Bu metot hem veriyi çeker hem de değişimi kontrol eder.
-    @Scheduled(fixedRate = 180000)
+    @Transactional
+    @Scheduled(fixedRate = 1800000000)
     public void checkAndNotifyExchangeRateChanges() {
+        System.out.println("Checking for new rates");
         Map<String, BigDecimal> allRates = new HashMap<>();
         Map<String, BigDecimal> forexRates = getForexRates();
         allRates.putAll(forexRates);
@@ -78,27 +85,52 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
         }
 
         allRates.forEach((currencyPair, newRate) -> {
-            // Düzeltme 3: lastKnownRates Map'inden veriyi çekiyoruz
-            BigDecimal lastRate = lastKnownRates.get(currencyPair);
+            // Bu currency pair'e abone olan tüm kullanıcıları getir
+            List<UserExchangeRateSubscription> subscriptions = subscriptionRepository.findAllByCurrencyPair(currencyPair);
 
-            // ÖNEMLİ: Eğer yeni kur, son bilinen kurdan farklıysa...
-            if (lastRate == null || !lastRate.equals(newRate)) {
-                System.out.println("Değişim tespit edildi: " + currencyPair + " Eski: " + lastRate + ", Yeni: " + newRate);
+            for (UserExchangeRateSubscription subscription : subscriptions) {
+                BigDecimal lastRate = subscription.getRate();
 
-                // 4. Değişimi tüm bağlı kullanıcılara gönderin
-                broadcastUpdate(currencyPair, newRate);
+                // Değişiklik kontrolü
+                if (lastRate == null || !lastRate.equals(newRate)) {
+                    System.out.println("Değişim tespit edildi - Kullanıcı: " + subscription.getUser().getEmail() +
+                            ", Kur: " + currencyPair + " Eski: " + lastRate + ", Yeni: " + newRate);
 
-                // 5. Bellekteki son bilinen değeri güncelleyin
-                // Düzeltme 4: lastKnownRates Map'ine yeni değeri koyuyoruz
-                lastKnownRates.put(currencyPair, newRate);
+                    // Sadece bu kullanıcıya bildirim gönder
+                    sendNotificationToUser(subscription.getUser().getEmail(), currencyPair, newRate);
+                    System.out.println(".................................................................................");
+                    // Aboneliğin rate'ini güncelle
+                    subscription.setRate(newRate);
+                    subscriptionRepository.save(subscription);
+                }
             }
+
+            // Tüm abonelikleri toplu güncellemek için alternatif:
+            // subscriptionRepository.updateAllRatesForCurrencyPair(currencyPair, newRate);
         });
     }
 
-    // Bu metot artık kullanılmayacak, işlevi checkAndNotifyExchangeRateChanges tarafından karşılanıyor.
-    // Dilersen bu metodu kaldırabilirsin.
-    // private void sendAllRates() { ... }
+    // Yeni metod: Belirli bir kullanıcıya bildirim gönder
+    // ExchangeRateWebSocketHandler.java - Basit kullanım
+    // ExchangeRateWebSocketHandler.java - EN BASİT
+    private void sendNotificationToUser(String userEmail, String currencyPair, BigDecimal newRate) {
+        System.out.println("🔔 Notify: " + userEmail + " for " + currencyPair);
 
+        for (WebSocketSession session : sessions) {
+            try {
+                // Direkt principal'ı kontrol et
+                if (session.getPrincipal() != null &&
+                        session.getPrincipal().getName().equals(userEmail)) {
+
+                    String message = "{\"" + currencyPair + "\":" + newRate + "}";
+                    session.sendMessage(new TextMessage(message));
+                    System.out.println("✅ Sent to: " + userEmail);
+                }
+            } catch (Exception e) {
+                System.out.println("❌ Error: " + e.getMessage());
+            }
+        }
+    }
     private void broadcastUpdate(String currencyPair, BigDecimal newRate) {
         List<String> userEmailsToNotify = subscriptionRepository.findByCurrencyPair(currencyPair)
                 .stream()
@@ -168,7 +200,7 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
 
         try {
 
-            String apiKey = "becedf36cbf5f6eb9240fb460844b5c9";
+            String apiKey = "cecdcace37141eba25339706aeeb61de";
             String goldResponse = restTemplate.getForObject(
                     "https://api.metalpriceapi.com/v1/latest?api_key=" + apiKey + "&base=XAU&currencies=TRY",
                     String.class
