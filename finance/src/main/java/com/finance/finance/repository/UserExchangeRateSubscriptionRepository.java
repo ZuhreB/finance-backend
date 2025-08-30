@@ -20,4 +20,5 @@ public interface UserExchangeRateSubscriptionRepository extends JpaRepository<Us
     @Transactional
     @Query("UPDATE UserExchangeRateSubscription u SET u.rate = :rate WHERE u.currencyPair = :currencyPair")
     void updateAllRatesForCurrencyPair(@Param("currencyPair") String currencyPair, @Param("rate") BigDecimal rate);
+    List<UserExchangeRateSubscription> findByUserId(Long userId);
 }

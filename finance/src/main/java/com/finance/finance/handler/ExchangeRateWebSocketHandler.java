@@ -45,7 +45,14 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         sessions.add(session);
-        System.out.println("Yeni WebSocket bağlantısı: " + session.getId());
+
+        // Session attributes'tan kullanıcı bilgilerini al
+        String username = (String) session.getAttributes().get("username");
+        String token = (String) session.getAttributes().get("token");
+
+        System.out.println("Yeni WebSocket bağlantısı: " + session.getId() +
+                ", User: " + username +
+                ", Token: " + (token != null ? "provided" : "missing"));
 
         // İlk bağlanan kullanıcıya hemen güncel veriyi gönder
         sendAllRates();
@@ -89,7 +96,7 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
             for (UserExchangeRateSubscription subscription : subscriptions) {
                 BigDecimal lastRate = subscription.getRate();
 
-                if (lastRate == null || !lastRate.equals(newRate)) {
+                if (lastRate == null || lastRate.compareTo(newRate) != 0) {
                     System.out.println("Değişim tespit edildi - Kullanıcı: " + subscription.getUser().getEmail() +
                             ", Kur: " + currencyPair + " Eski: " + lastRate + ", Yeni: " + newRate);
 
@@ -263,7 +270,7 @@ public class ExchangeRateWebSocketHandler extends TextWebSocketHandler {
                     }
                 } catch (Exception bigParaEx) {
                     System.err.println("BigPara API'sinden de veri alınamadı: " + bigParaEx.getMessage());
-                    rates.put("GRAM ALTIN", new BigDecimal("2250.50"));
+                    rates.put("GRAM ALTIN", new BigDecimal("4005.50"));
                 }
             }
         }

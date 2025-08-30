@@ -12,7 +12,10 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.security.Principal;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+
 import jakarta.transaction.Transactional;
 
 @RestController
@@ -40,14 +43,30 @@ public class SubscriptionController {
         return ResponseEntity.ok(Collections.singletonMap("message", "Subscription added successfully"));
     }
 
-    @DeleteMapping("/{currencyPair}")
+    @DeleteMapping
     @Transactional
-    public ResponseEntity<?> removeSubscription(@PathVariable String currencyPair, Principal principal) {
+    public ResponseEntity<?> removeSubscription(@RequestParam String currencyPair, Principal principal) {
         User user = userRepository.findByUsername(principal.getName()).orElse(null);
         if (user == null) {
             return ResponseEntity.status(401).body("User not found");
         }
         subscriptionRepository.deleteByUserIdAndCurrencyPair(user.getId(), currencyPair);
         return ResponseEntity.ok(Collections.singletonMap("message", "Subscription removed successfully"));
+    }
+    @GetMapping
+    public ResponseEntity<?> getUserSubscriptions(Principal principal) {
+        User user = userRepository.findByUsername(principal.getName()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401).body("User not found");
+        }
+
+        List<UserExchangeRateSubscription> subscriptions =
+                subscriptionRepository.findByUserId(user.getId());
+
+        List<String> currencyPairs = subscriptions.stream()
+                .map(UserExchangeRateSubscription::getCurrencyPair)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(currencyPairs);
     }
 }
